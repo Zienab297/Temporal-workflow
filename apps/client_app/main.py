@@ -12,6 +12,8 @@ load_dotenv()
 TEMPORAL_HOST = os.environ["TEMPORAL_HOST"]
 TEMPORAL_NAMESPACE = os.environ["TEMPORAL_NAMESPACE"]
 TEMPORAL_PDF_PROCESS_QUEUE = os.environ["TEMPORAL_PDF_PROCESS_TASK_QUEUE"]
+TEMPORAL_PDF_PROCESS_QUEUE = os.environ["TEMPORAL_PDF_PROCESS_TASK_QUEUE"]
+TEMPORAL_CONTRACT_REVIEW_TASK_QUEUE = os.environ["TEMPORAL_CONTRACT_REVIEW_TASK_QUEUE"]
 
 
 app = FastAPI(
@@ -29,6 +31,10 @@ class ProcessPDFExecuteResponse(BaseModel):
 
 class ProcessPDFStatusResponse(BaseModel):
     workflow_id: str
+
+class StartReviewRequest(BaseModel):
+    s3_path: list[str]
+    max_revision: int = 2
 
 
 async def get_temporal_client() -> Client:
@@ -67,7 +73,7 @@ async def process_pdf(request: ProcessPDFRequest):
     )
 
 
-@app.post("/process-pdf/status", response_model=ProcessPDFStatusResponse)
+@app.post("/workflow/status", response_model=ProcessPDFStatusResponse)
 async def process_pdf(request: ProcessPDFRequest):
 
     workflow_id = f"pdf-pipeline-{uuid.uuid4}"
@@ -110,3 +116,22 @@ async def get_workflow_status(workflow_id: str):
         "workflow status": status.name,
         "workflow_result": result
     }
+
+
+@app.post("/contract-review/start")
+async def start_contrct_review(request: StartReviewRequest):
+    workflow_id = f"content-review-{uuid.uuid4()}"
+
+    client = await get_temporal_client()
+
+    await client.start_workflow(
+        "ContractReviewWorkflow",
+        args=[{
+            "s3_path": request.s3_path,
+            "max_revision": request.max_revision
+        }],
+        id= workflow_id,
+        task_queue=TEMPORAL_CONTRACT_REVIEW_TASK_QUEUE,
+    )
+
+    return {"workflow_id": workflow_id}
