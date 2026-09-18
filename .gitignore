@@ -1,3 +1,6 @@
 .env
 /__pycache__
 /.vscode
+apps/ai-contract-review/__pycache__
+apps/client_app/__pycache__
+apps/pdf-extractor-02-temporal/__pycache__
