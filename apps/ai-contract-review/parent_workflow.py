@@ -54,6 +54,26 @@ class ContractReviewWorkflow:
         self._review_feedback: str=""
         self._approved_by: str=""
 
+
+    #Querying
+    @workflow.query
+    def get_status(self) -> dict:
+        return {
+            "status":  self._status,
+            "pdfs_processed": len(self._summaries),
+            "report_preview": json.dumps(self._report, ensure_ascii=False)[:500],
+            "approved_by": self._approved_by
+        }
+
+    @workflow.query
+    def get_report(self) -> dict:
+        return {
+            "status": self._status,
+            "report": self._report,
+            "approved_by": self._approved_by,
+            "source": [s["s3_path"] for s in self._summaries]
+        }
+
     # signal to store who is reviewing
     @workflow.signal
     async def assign_reviewer(self, name: str) -> None:
@@ -160,15 +180,15 @@ class ContractReviewWorkflow:
             self._review_decision = None
 
             #waiting for signal to update
-            timed_out = not await workflow.wait_condition(
-                lambda: self._review_decision is not None,
-                timeout=timedelta(days=3)
-            )
-
-
-            if timed_out:
-                workflow.logger.warning("Review timed out after 3 days - auto completing")
+            try:
+                await workflow.wait_condition(
+                    lambda: self._review_decision is not None,
+                    timeout=timedelta(days=3),
+                )
+            except asyncio.TimeoutError:
+                workflow.logger.warning("Review timed out after 3 days — auto-completing")
                 break
+
 
             if self._review_decision == "approve":
                 workflow.logger.info(f"Approved by: {self._approved_by}")

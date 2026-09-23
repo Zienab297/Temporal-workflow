@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from dotenv import load_dotenv
 from temporalio.client import Client
+from temporalio.client import WorkflowExecutionStatus as WES
 
 load_dotenv()
 
@@ -36,6 +37,8 @@ class StartReviewRequest(BaseModel):
     s3_path: list[str]
     max_revision: int = 2
 
+class AssignRequest:
+    name: str
 
 async def get_temporal_client() -> Client:
     return await Client.connect(
@@ -135,3 +138,93 @@ async def start_contrct_review(request: StartReviewRequest):
     )
 
     return {"workflow_id": workflow_id}
+
+
+@app.get("/contract-review/{workflow_id}/status")
+async def get_review_status(workflow_id: str):
+
+    client = await get_temporal_client()
+    handle = client.get_workflow_handle(workflow_id=workflow_id)
+    desc = await handle.describe()
+
+    workflow_state = None
+    if desc.status == WES.WORKFLOW_EXECUTION_STATUS_RUNNING:
+
+        try:
+            workflow_state = await handle.query("get_status", result_type=dict)
+        except:
+            pass
+
+    return {
+        "workflow_id": workflow_id,
+        "execution_status": desc.status.name,
+        "workflow_state": workflow_state,
+    }
+
+
+@app.get("/contract-review/{workflow_id}/report")
+async def get_review_status(workflow_id: str):
+
+    client = await get_temporal_client()
+    handle = client.get_workflow_handle(workflow_id=workflow_id)
+    desc = await handle.describe()
+
+    workflow_state = None
+    if desc.status == WES.RUNNING:
+
+        try:
+            workflow_report = await handle.query("get_report", result_type=dict)
+        except Exception as e:
+            workflow_state = {"error": str(e)}
+
+    return {
+        "workflow_id": workflow_id,
+        "execution_status": desc.status.name,
+        "workflow_report": workflow_report,
+    }
+
+
+@app.post("/contract-reviewer/{workflow_id}/assign")
+async def assign_reviewer(workflow_id: str, request: AssignRequest):
+
+    client = await get_temporal_client()
+    handle = client.get_workflow_handle(workflow_id=workflow_id)
+
+
+    await handle.signal(
+        "assign_reviewer", request.name
+    )
+
+    return {
+        "status" : "ok",
+        "message": f"Reviewer '{request.name}' assigned"
+    }
+
+@app.post("/contract-review/{workflow_id}/revise")
+async def submit_revise(workflow_id: str, request: ReviseRequest):
+
+    client = await get_temporal_client()
+    handle = client.get_workflow_handle(workflow_id)
+
+    result = await handle.execute_update(
+        "submit_decision", args=[
+            "revise", request.feedback
+        ]
+    )
+
+    return {"ok": True, "message": result}
+
+
+@app.get("/contract-review/{workflow_id}/approve")
+async def submit_approve(workflow_id: str):
+
+    client = await get_temporal_client()
+    handle = client.get_workflow_handle(workflow_id)
+
+    result = await handle.execute_update(
+        "submit_decision", args=[
+            "approve", ""
+        ]
+    )
+
+    return {"ok": True, "message": result}
